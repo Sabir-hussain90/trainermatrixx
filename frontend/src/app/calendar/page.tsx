@@ -39,24 +39,18 @@ export default function CalendarPage() {
     analytics: true,
   });
 
-  // ====== VIEW STATE (NEW) ======
+  // ====== VIEW STATE ======
   const [view, setView] = useState<'calendar' | 'account-info' | 'account-settings'>('calendar');
 
-  // ====== ACCOUNT MENU (NEW) ======
+  // ====== ACCOUNT MENU ======
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
   const [activeTab, setActiveTab] = useState<'Calendar' | 'Agenda'>('Calendar');
   const [viewMode, setViewMode] = useState<'Day' | 'Week'>('Week');
 
-  const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
-    const now = new Date();
-    const day = now.getDay();
-    const start = new Date(now);
-    start.setDate(now.getDate() - day);
-    start.setHours(0, 0, 0, 0);
-    return start;
-  });
+  // ====== FIXED: use null initializer, set date in useEffect ======
+  const [currentWeekStart, setCurrentWeekStart] = useState<Date | null>(null);
 
   // ====== CREATE EVENT MODAL ======
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -88,7 +82,7 @@ export default function CalendarPage() {
 
   const [events, setEvents] = useState<any[]>([]);
 
-  // ====== ACCOUNT INFO FORM (NEW) ======
+  // ====== ACCOUNT INFO FORM ======
   const [activeInfoTab, setActiveInfoTab] = useState<'user' | 'business'>('user');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -109,7 +103,7 @@ export default function CalendarPage() {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [savingInfo, setSavingInfo] = useState(false);
 
-  // ====== ACCOUNT SETTINGS (NEW) ======
+  // ====== ACCOUNT SETTINGS ======
   type SettingsTab = 'privileges' | 'metrics' | 'testing' | 'results' | 'branding' | 'integrations';
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('privileges');
   const [primaryColor, setPrimaryColor] = useState('#F59E0B');
@@ -127,6 +121,16 @@ export default function CalendarPage() {
       circumferenceMeasurement: 'Left Side',
     },
   });
+
+  // ====== FIXED: initialize currentWeekStart in useEffect (client-only) ======
+  useEffect(() => {
+    const now = new Date();
+    const day = now.getDay();
+    const start = new Date(now);
+    start.setDate(now.getDate() - day);
+    start.setHours(0, 0, 0, 0);
+    setCurrentWeekStart(start);
+  }, []);
 
   // ====== LOAD ======
   useEffect(() => {
@@ -153,7 +157,6 @@ export default function CalendarPage() {
       }
     }
 
-    // Load business info
     const storedBiz = localStorage.getItem('business_info');
     if (storedBiz) {
       try {
@@ -168,7 +171,6 @@ export default function CalendarPage() {
       } catch (err) { console.error(err); }
     }
 
-    // Load account settings
     const storedSettings = localStorage.getItem('account_settings');
     if (storedSettings) {
       try {
@@ -244,29 +246,6 @@ export default function CalendarPage() {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const weekDays = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date(currentWeekStart);
-    d.setDate(currentWeekStart.getDate() + i);
-    return d;
-  });
-
-  const weekEnd = new Date(currentWeekStart);
-  weekEnd.setDate(currentWeekStart.getDate() + 6);
-
-  const fmtShort = (d: Date) => {
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    const yyyy = d.getFullYear();
-    return `${mm}/${dd}/${yyyy}`;
-  };
-
-  const fmtDayHeader = (d: Date) => {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${days[d.getDay()]} ${mm}/${dd}`;
-  };
-
   const goToToday = () => {
     const now = new Date();
     const day = now.getDay();
@@ -274,24 +253,6 @@ export default function CalendarPage() {
     start.setDate(now.getDate() - day);
     start.setHours(0, 0, 0, 0);
     setCurrentWeekStart(start);
-  };
-
-  const hours = Array.from({ length: 24 }).map((_, i) => i);
-
-  const formatHour = (h: number) => {
-    if (h === 0) return '12:00 AM';
-    if (h < 12) return `${h}:00 AM`;
-    if (h === 12) return '12:00 PM';
-    return `${h - 12}:00 PM`;
-  };
-
-  const isToday = (d: Date) => {
-    const today = new Date();
-    return (
-      d.getDate() === today.getDate() &&
-      d.getMonth() === today.getMonth() &&
-      d.getFullYear() === today.getFullYear()
-    );
   };
 
   const closeModal = () => {
@@ -390,7 +351,6 @@ export default function CalendarPage() {
     return hour;
   };
 
-  // ====== SAVE ACCOUNT INFO (NEW) ======
   const handleSaveAccountInfo = async () => {
     const errs: { [key: string]: string } = {};
 
@@ -450,7 +410,6 @@ export default function CalendarPage() {
     }
   };
 
-  // ====== LOGO UPLOAD (NEW) ======
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -463,7 +422,6 @@ export default function CalendarPage() {
     reader.readAsDataURL(file);
   };
 
-  // ====== SAVE SETTINGS (NEW) ======
   const handleSaveSettings = () => {
     localStorage.setItem('account_settings', JSON.stringify({
       primaryColor,
@@ -473,13 +431,56 @@ export default function CalendarPage() {
     setToast({ message: 'Account settings saved', type: 'success' });
   };
 
-  if (loading || !user) {
+  // ====== GUARD: wait for user + currentWeekStart ======
+  if (loading || !user || !currentWeekStart) {
     return (
       <div className="min-h-screen bg-[#f5f6f8] flex items-center justify-center">
         <p className="text-gray-400 text-sm">Loading...</p>
       </div>
     );
   }
+
+  // Now currentWeekStart is a Date — safe to use everywhere below
+  const weekDays = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date(currentWeekStart);
+    d.setDate(currentWeekStart.getDate() + i);
+    return d;
+  });
+
+  const weekEnd = new Date(currentWeekStart);
+  weekEnd.setDate(currentWeekStart.getDate() + 6);
+
+  const fmtShort = (d: Date) => {
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
+  };
+
+  const fmtDayHeader = (d: Date) => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${days[d.getDay()]} ${mm}/${dd}`;
+  };
+
+  const hours = Array.from({ length: 24 }).map((_, i) => i);
+
+  const formatHour = (h: number) => {
+    if (h === 0) return '12:00 AM';
+    if (h < 12) return `${h}:00 AM`;
+    if (h === 12) return '12:00 PM';
+    return `${h - 12}:00 PM`;
+  };
+
+  const isToday = (d: Date) => {
+    const today = new Date();
+    return (
+      d.getDate() === today.getDate() &&
+      d.getMonth() === today.getMonth() &&
+      d.getFullYear() === today.getFullYear()
+    );
+  };
 
   const displayDays = viewMode === 'Week' ? weekDays : [new Date()];
 
@@ -596,7 +597,6 @@ export default function CalendarPage() {
             <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full"></span>
           </button>
 
-          {/* ACCOUNT MENU (NEW) */}
           <div className="relative" ref={accountMenuRef}>
             <button
               onClick={() => setAccountMenuOpen(!accountMenuOpen)}
@@ -646,7 +646,7 @@ export default function CalendarPage() {
           </div>
         </header>
 
-        {/* ==================== CALENDAR VIEW ==================== */}
+        {/* CALENDAR VIEW */}
         {view === 'calendar' && (
           <div className="flex-1 p-8 overflow-y-auto bg-[#f7f8fa]">
 
@@ -750,7 +750,7 @@ export default function CalendarPage() {
           </div>
         )}
 
-        {/* ==================== ACCOUNT INFO VIEW ==================== */}
+        {/* ACCOUNT INFO VIEW */}
         {view === 'account-info' && (
           <div className="flex-1 overflow-y-auto bg-[#f7f8fa]">
             <div className="px-10 pt-10 pb-6">
@@ -885,7 +885,7 @@ export default function CalendarPage() {
           </div>
         )}
 
-        {/* ==================== ACCOUNT SETTINGS VIEW ==================== */}
+        {/* ACCOUNT SETTINGS VIEW */}
         {view === 'account-settings' && (
           <div className="flex-1 overflow-y-auto bg-[#f7f8fa]">
             <div className="px-10 pt-10 pb-6">
@@ -996,7 +996,6 @@ export default function CalendarPage() {
 
               {settingsTab === 'integrations' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* InBody */}
                   <div className="bg-white border border-gray-200 rounded-2xl p-7">
                     <h3 className="text-[15px] font-bold text-gray-900 mb-5">InBody</h3>
                     <label className="flex items-center gap-3 cursor-pointer select-none mb-5">
@@ -1015,7 +1014,6 @@ export default function CalendarPage() {
                     </div>
                   </div>
 
-                  {/* Evolt */}
                   <div className="bg-white border border-gray-200 rounded-2xl p-7">
                     <h3 className="text-[15px] font-bold text-gray-900 mb-5">Evolt</h3>
                     <label className="flex items-center gap-3 cursor-pointer select-none mb-5">
@@ -1034,7 +1032,6 @@ export default function CalendarPage() {
                     </div>
                   </div>
 
-                  {/* Styku */}
                   <div className="bg-white border border-gray-200 rounded-2xl p-7">
                     <h3 className="text-[15px] font-bold text-gray-900 mb-5">Styku</h3>
                     <label className="flex items-center gap-3 cursor-pointer select-none mb-5">
@@ -1105,7 +1102,7 @@ export default function CalendarPage() {
         )}
       </main>
 
-      {/* ==================== CREATE EVENT MODAL ==================== */}
+      {/* CREATE EVENT MODAL */}
       {createModalOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl relative max-h-[90vh] flex flex-col">
@@ -1130,7 +1127,6 @@ export default function CalendarPage() {
             <form onSubmit={handleSaveEvent} className="flex-1 overflow-y-auto px-7 pb-4" noValidate>
               <div className="space-y-5">
 
-                {/* Event Name */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">
                     Event Name <span className="text-red-500">*</span>
@@ -1150,7 +1146,6 @@ export default function CalendarPage() {
                   {validationErrors.eventName && <p className="text-xs text-red-500 mt-1.5">{validationErrors.eventName}</p>}
                 </div>
 
-                {/* Date */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">
                     Date <span className="text-red-500">*</span>
@@ -1174,7 +1169,6 @@ export default function CalendarPage() {
                   {validationErrors.date && <p className="text-xs text-red-500 mt-1.5">{validationErrors.date}</p>}
                 </div>
 
-                {/* Start Time + End Time */}
                 <div className="grid grid-cols-2 gap-4">
 
                   <div>
@@ -1272,7 +1266,6 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
-                {/* User(s) */}
                 <div className="relative" ref={usersRef}>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">
                     User(s) <span className="text-red-500">*</span>
@@ -1320,7 +1313,6 @@ export default function CalendarPage() {
                   {validationErrors.users && <p className="text-xs text-red-500 mt-1.5">{validationErrors.users}</p>}
                 </div>
 
-                {/* Profile(s) */}
                 <div className="relative" ref={profilesRef}>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">Profile(s) <span className="text-red-500">*</span></label>
                   <div
@@ -1366,7 +1358,6 @@ export default function CalendarPage() {
                   {validationErrors.profiles && <p className="text-xs text-red-500 mt-1.5">{validationErrors.profiles}</p>}
                 </div>
 
-                {/* Note */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-800 mb-2">Note</label>
                   <textarea
