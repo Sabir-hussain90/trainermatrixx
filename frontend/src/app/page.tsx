@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 export default function Home() {
   const router = useRouter();
-  const [email, setEmail] = useState('naeem.shahzad+2004@trainermetrics.com');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -14,6 +14,11 @@ export default function Home() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+
+    if (!email || email.length === 0) {
+      setMessage({ text: 'Please enter an email.', type: 'error' });
+      return;
+    }
 
     if (!password || password.length === 0) {
       setMessage({ text: 'Please enter a password.', type: 'error' });
@@ -128,7 +133,8 @@ export default function Home() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={loading}
-                className="w-full h-12 px-4 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 transition text-gray-800 disabled:opacity-60"
+                placeholder="you@example.com"
+                className="w-full h-12 px-4 bg-white border border-gray-200 rounded-xl text-sm outline-none focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 transition text-gray-800 placeholder-gray-400 disabled:opacity-60"
               />
             </div>
 
