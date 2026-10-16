@@ -22,6 +22,29 @@ const FORCE_OPTIONS = ['Push', 'Pull', 'Static'];
 const COLUMN_OPTIONS = ['Name', 'Primary Muscle', 'Equipment', 'Mechanics', 'Force', 'Access'];
 const VALUE_OPTIONS = ['Any', 'Contains', 'Equals', 'Starts with', 'Ends with'];
 
+// ====== VIDEO URL HELPERS ======
+const getYouTubeId = (url: string): string | null => {
+  if (!url) return null;
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtube\.com\/watch\?.*&v=)([A-Za-z0-9_-]{6,})/,
+    /youtu\.be\/([A-Za-z0-9_-]{6,})/,
+    /youtube\.com\/embed\/([A-Za-z0-9_-]{6,})/,
+    /youtube\.com\/shorts\/([A-Za-z0-9_-]{6,})/,
+    /youtube\.com\/v\/([A-Za-z0-9_-]{6,})/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+};
+
+const getVimeoId = (url: string): string | null => {
+  if (!url) return null;
+  const m = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  return m ? m[1] : null;
+};
+
 // ==================== MAIN PAGE ====================
 export default function ExercisesPage() {
   const router = useRouter();
@@ -30,9 +53,13 @@ export default function ExercisesPage() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [logoError, setLogoError] = useState(false);
 
-  // VIEW: 'list' | 'create' | 'edit'
-  const [view, setView] = useState<'list' | 'create' | 'edit'>('list');
+  // VIEW
+  const [view, setView] = useState<'list' | 'create' | 'edit' | 'account-info' | 'account-settings'>('list');
   const [editingExercise, setEditingExercise] = useState<any | null>(null);
+
+  // ====== ACCOUNT MENU ======
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
 
   // Sidebar sections
   const [openSections, setOpenSections] = useState({
@@ -84,13 +111,67 @@ export default function ExercisesPage() {
   // ACTIONS
   const [actionsExercise, setActionsExercise] = useState<any | null>(null);
   const [deleteExercise, setDeleteExercise] = useState<any | null>(null);
-  const [toast, setToast] = useState<{ message: string } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' } | null>(null);
+
+  // ====== ACCOUNT INFO FORM ======
+  const [activeInfoTab, setActiveInfoTab] = useState<'user' | 'business'>('user');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // ====== WORKING ACCOUNT PHOTO ======
+  const [accountPhoto, setAccountPhoto] = useState<string | null>(null);
+  const accountPhotoInputRef = useRef<HTMLInputElement>(null);
+
+  const [companyName, setCompanyName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [stateName, setStateName] = useState('');
+  const [zipCode, setZipCode] = useState('');
+  const [website, setWebsite] = useState('');
+
+  const [infoErrors, setInfoErrors] = useState<{ [key: string]: string }>({});
+  const [savingInfo, setSavingInfo] = useState(false);
+
+  // ====== ACCOUNT SETTINGS ======
+  type SettingsTab = 'privileges' | 'metrics' | 'testing' | 'results' | 'branding' | 'integrations';
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('privileges');
+  const [primaryColor, setPrimaryColor] = useState('#F59E0B');
+  const [accountLogo, setAccountLogo] = useState<string | null>(null);
+  const accountLogoInputRef = useRef<HTMLInputElement>(null);
+
+  const [integrations, setIntegrations] = useState({
+    inbody: { enabled: false, apiUsername: '', apiKey: '' },
+    evolt: { enabled: false, clientId: '', clientSecret: '' },
+    styku: {
+      enabled: false,
+      apiKey: '',
+      apiSecret: '',
+      bodyFatMethod: 'BIA',
+      circumferenceMeasurement: 'Left Side',
+    },
+  });
 
   // ====== LOAD ======
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
-    if (storedUser) setUser(JSON.parse(storedUser));
-    else setUser({ name: 'Naeem2004', email: 'naeem@example.com', role: 'Admin' });
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser);
+      setUser(parsed);
+      const parts = (parsed.name || '').split(/\s+/).filter(Boolean);
+      setFirstName(parts[0] || '');
+      setLastName(parts.slice(1).join(' ') || '');
+      setEmail(parsed.email || '');
+    } else {
+      setUser({ name: 'Naeem2004', email: 'naeem@example.com', role: 'Admin' });
+      setFirstName('Naeem2004');
+      setEmail('naeem@example.com');
+    }
 
     const stored = localStorage.getItem(EXERCISES_STORAGE_KEY);
     if (stored) {
@@ -99,6 +180,43 @@ export default function ExercisesPage() {
         if (Array.isArray(parsed)) setExercises(parsed);
       } catch (err) { console.error(err); }
     }
+
+    const storedPhoto = localStorage.getItem('account_profile_photo');
+    if (storedPhoto) setAccountPhoto(storedPhoto);
+
+    const storedBiz = localStorage.getItem('business_info');
+    if (storedBiz) {
+      try {
+        const biz = JSON.parse(storedBiz);
+        setCompanyName(biz.companyName || '');
+        setPhone(biz.phone || '');
+        setAddress(biz.address || '');
+        setCity(biz.city || '');
+        setStateName(biz.state || '');
+        setZipCode(biz.zipCode || '');
+        setWebsite(biz.website || '');
+      } catch (err) { console.error(err); }
+    }
+
+    const storedSettings = localStorage.getItem('account_settings');
+    if (storedSettings) {
+      try {
+        const s = JSON.parse(storedSettings);
+        setPrimaryColor(s.primaryColor || '#F59E0B');
+        setAccountLogo(s.accountLogo || null);
+        if (s.integrations) {
+          setIntegrations((prev) => ({
+            ...prev,
+            ...s.integrations,
+            styku: {
+              ...prev.styku,
+              ...(s.integrations.styku || {}),
+            },
+          }));
+        }
+      } catch (err) { console.error(err); }
+    }
+
     setDataLoaded(true);
     setLoading(false);
   }, []);
@@ -113,6 +231,7 @@ export default function ExercisesPage() {
       if (fieldRef.current && !fieldRef.current.contains(t)) setFieldOpen(false);
       if (columnRef.current && !columnRef.current.contains(t)) setColumnOpen(false);
       if (valueRef.current && !valueRef.current.contains(t)) setValueOpen(false);
+      if (accountMenuRef.current && !accountMenuRef.current.contains(t)) setAccountMenuOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -156,7 +275,7 @@ export default function ExercisesPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
-      setToast({ message: 'File too large. Max 5MB.' });
+      setToast({ message: 'File too large. Max 5MB.', type: 'error' });
       return;
     }
     const reader = new FileReader();
@@ -237,7 +356,7 @@ export default function ExercisesPage() {
             : e
         )
       );
-      setToast({ message: 'Exercise updated successfully' });
+      setToast({ message: 'Exercise updated successfully', type: 'success' });
     } else {
       const newExercise = {
         id: Date.now(),
@@ -249,7 +368,7 @@ export default function ExercisesPage() {
         createdAt: new Date().toISOString(),
       };
       setExercises((prev) => [newExercise, ...prev]);
-      setToast({ message: 'Exercise created successfully' });
+      setToast({ message: 'Exercise created successfully', type: 'success' });
     }
     setSaving(false);
     setView('list');
@@ -263,7 +382,7 @@ export default function ExercisesPage() {
     if (!actionsExercise) return;
     const dup = { ...actionsExercise, id: Date.now(), name: `${actionsExercise.name} - duplicate` };
     setExercises((prev) => [dup, ...prev]);
-    setToast({ message: `"${actionsExercise.name}" duplicated` });
+    setToast({ message: `"${actionsExercise.name}" duplicated`, type: 'success' });
     setActionsExercise(null);
   };
 
@@ -274,24 +393,152 @@ export default function ExercisesPage() {
   const confirmDeleteExercise = () => {
     if (deleteExercise) {
       setExercises((prev) => prev.filter((e) => e.id !== deleteExercise.id));
-      setToast({ message: 'Exercise deleted successfully' });
+      setToast({ message: 'Exercise deleted successfully', type: 'success' });
       setDeleteExercise(null);
     }
   };
 
-  // ====== VIDEO PREVIEW ======
-  const getYoutubeThumb = (url: string) => {
-    const m = url.match(/(?:v=|youtu\.be\/|embed\/)([A-Za-z0-9_-]{6,})/);
-    return m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : '';
-  };
-  const getVimeoThumb = (url: string) => {
-    const m = url.match(/vimeo\.com\/(\d+)/);
-    return m ? `https://vumbnail.com/${m[1]}.jpg` : '';
-  };
+  // ====== VIDEO ID + EMBED URL =====
+  const youtubeId = videoPlatform === 'YouTube' ? getYouTubeId(videoUrl) : null;
+  const vimeoId = videoPlatform === 'Vimeo' ? getVimeoId(videoUrl) : null;
+  const embedUrl =
+    youtubeId
+      ? `https://www.youtube.com/embed/${youtubeId}?autoplay=0&rel=0`
+      : vimeoId
+        ? `https://player.vimeo.com/video/${vimeoId}`
+        : '';
   const previewThumb =
-    videoPlatform === 'YouTube' ? getYoutubeThumb(videoUrl)
-    : videoPlatform === 'Vimeo' ? getVimeoThumb(videoUrl)
-    : '';
+    youtubeId
+      ? `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`
+      : vimeoId
+        ? `https://vumbnail.com/${vimeoId}.jpg`
+        : '';
+
+  // ====== WORKING ACCOUNT PHOTO ======
+  const handleAccountPhotoClick = () => {
+    accountPhotoInputRef.current?.click();
+  };
+
+  const handleAccountPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 6 * 1024 * 1024) {
+      setToast({ message: 'File too large. Max 6MB.', type: 'error' });
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      setToast({ message: 'Please select an image file.', type: 'error' });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      setAccountPhoto(dataUrl);
+      try {
+        localStorage.setItem('account_profile_photo', dataUrl);
+        setToast({ message: 'Profile photo updated successfully', type: 'success' });
+      } catch (err) {
+        console.error(err);
+        setToast({ message: 'Failed to save photo (storage full?)', type: 'error' });
+      }
+    };
+    reader.onerror = () => {
+      setToast({ message: 'Failed to read image file', type: 'error' });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleRemoveAccountPhoto = () => {
+    setAccountPhoto(null);
+    localStorage.removeItem('account_profile_photo');
+    setToast({ message: 'Profile photo removed', type: 'success' });
+  };
+
+  // ====== SAVE ACCOUNT INFO ======
+  const handleSaveAccountInfo = async () => {
+    const errs: { [key: string]: string } = {};
+
+    if (activeInfoTab === 'user') {
+      if (!firstName.trim()) errs.firstName = 'First name is required';
+      if (!lastName.trim()) errs.lastName = 'Last name is required';
+      if (!email.trim()) errs.email = 'Email is required';
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errs.email = 'Invalid email format';
+      if (newPassword && newPassword.length < 8) errs.newPassword = 'Password must be at least 8 characters';
+      if (newPassword && newPassword !== confirmPassword) errs.confirmPassword = 'Passwords do not match';
+
+      if (Object.keys(errs).length > 0) {
+        setInfoErrors(errs);
+        setToast({ message: 'Please fix the highlighted fields', type: 'error' });
+        return;
+      }
+
+      setInfoErrors({});
+      setSavingInfo(true);
+      await new Promise((r) => setTimeout(r, 400));
+
+      const updatedUser = { ...(user as any), name: `${firstName} ${lastName}`.trim(), email };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setUser(updatedUser);
+      if (newPassword) localStorage.setItem('user_password', newPassword);
+
+      setNewPassword('');
+      setConfirmPassword('');
+      setSavingInfo(false);
+      setToast({ message: 'User info saved successfully', type: 'success' });
+    } else {
+      if (!companyName.trim()) errs.companyName = 'Company name is required';
+      if (!phone.trim()) errs.phone = 'Phone is required';
+
+      if (Object.keys(errs).length > 0) {
+        setInfoErrors(errs);
+        setToast({ message: 'Please fix the highlighted fields', type: 'error' });
+        return;
+      }
+
+      setInfoErrors({});
+      setSavingInfo(true);
+      await new Promise((r) => setTimeout(r, 400));
+
+      localStorage.setItem('business_info', JSON.stringify({
+        companyName: companyName.trim(),
+        phone: phone.trim(),
+        address: address.trim(),
+        city: city.trim(),
+        state: stateName.trim(),
+        zipCode: zipCode.trim(),
+        website: website.trim(),
+      }));
+
+      setSavingInfo(false);
+      setToast({ message: 'Business info saved successfully', type: 'success' });
+    }
+  };
+
+  // ====== ACCOUNT LOGO UPLOAD ======
+  const handleAccountLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setToast({ message: 'File too large. Max 5MB.', type: 'error' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setAccountLogo(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  // ====== SAVE SETTINGS ======
+  const handleSaveSettings = () => {
+    localStorage.setItem('account_settings', JSON.stringify({
+      primaryColor,
+      accountLogo,
+      integrations,
+    }));
+    setToast({ message: 'Account settings saved', type: 'success' });
+  };
 
   // ====== FILTERING ======
   const filteredExercises = exercises.filter((e) => {
@@ -327,10 +574,12 @@ export default function ExercisesPage() {
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[300]">
           <div className="bg-white rounded-xl shadow-2xl border border-gray-100 py-3.5 px-5 flex items-center gap-3 min-w-[320px]">
-            <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center flex-shrink-0">
-              <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-              </svg>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${toast.type === 'error' ? 'bg-red-50' : 'bg-emerald-50'}`}>
+              {toast.type === 'error' ? (
+                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+              ) : (
+                <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+              )}
             </div>
             <p className="text-sm font-medium text-gray-800 flex-1">{toast.message}</p>
           </div>
@@ -431,12 +680,67 @@ export default function ExercisesPage() {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
             <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full"></span>
           </button>
-          <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-            <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-semibold">{getInitials(user.name)}</div>
-            <div>
-              <p className="text-sm font-semibold text-gray-800 leading-none">{user.name}</p>
-              <p className="text-[11px] text-gray-500 leading-none mt-1">{user.role}</p>
-            </div>
+
+          {/* ACCOUNT MENU */}
+          <div className="relative" ref={accountMenuRef}>
+            <button
+              onClick={() => setAccountMenuOpen(!accountMenuOpen)}
+              className="flex items-center gap-3 pl-4 border-l border-gray-200 hover:bg-gray-50 rounded-lg px-2 py-1 transition"
+            >
+              <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-semibold overflow-hidden">
+                {accountPhoto ? (
+                  <img src={accountPhoto} alt={user.name} className="w-full h-full object-cover" />
+                ) : (
+                  getInitials(user.name)
+                )}
+              </div>
+              <div className="text-left">
+                <p className="text-sm font-semibold text-gray-800 leading-none">{user.name}</p>
+                <p className="text-[11px] text-gray-500 leading-none mt-1">{user.role}</p>
+              </div>
+            </button>
+
+            {accountMenuOpen && (
+              <div className="absolute top-full right-0 mt-3 w-[320px] bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-sm font-semibold overflow-hidden flex-shrink-0">
+                    {accountPhoto ? (
+                      <img src={accountPhoto} alt={user.name} className="w-full h-full object-cover" />
+                    ) : (
+                      getInitials(user.name)
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[15px] font-semibold text-gray-900 truncate">{user.name}</p>
+                    <p className="text-[12.5px] text-gray-500 mt-0.5 truncate">{user.role}</p>
+                  </div>
+                </div>
+                <div className="py-2">
+                  <button onClick={() => { setAccountMenuOpen(false); setView('list'); }} className="w-full flex items-center gap-3.5 px-5 py-3 text-[14px] text-gray-800 hover:bg-gray-50 transition text-left">
+                    <svg className="w-[18px] h-[18px] text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6M3 10l6-6" /></svg>
+                    <span>Switch to Classic</span>
+                  </button>
+                  <button onClick={() => { setAccountMenuOpen(false); setView('account-info'); }} className="w-full flex items-center gap-3.5 px-5 py-3 text-[14px] text-gray-800 hover:bg-gray-50 transition text-left">
+                    <svg className="w-[18px] h-[18px] text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                    <span>Account Info</span>
+                  </button>
+                  <button onClick={() => { setAccountMenuOpen(false); setView('account-settings'); }} className="w-full flex items-center gap-3.5 px-5 py-3 text-[14px] text-gray-800 hover:bg-gray-50 transition text-left">
+                    <svg className="w-[18px] h-[18px] text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    <span>Account Settings</span>
+                  </button>
+                  <button onClick={() => setAccountMenuOpen(false)} className="w-full flex items-center gap-3.5 px-5 py-3 text-[14px] text-gray-800 hover:bg-gray-50 transition text-left">
+                    <svg className="w-[18px] h-[18px] text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
+                    <span>Billing</span>
+                  </button>
+                </div>
+                <div className="border-t border-gray-100 py-2">
+                  <button onClick={() => { setAccountMenuOpen(false); handleLogout(); }} className="w-full flex items-center gap-3.5 px-5 py-3 text-[14px] text-red-600 hover:bg-red-50 transition text-left">
+                    <svg className="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                    <span className="font-medium">Logout</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </header>
 
@@ -460,7 +764,6 @@ export default function ExercisesPage() {
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-              {/* Toolbar */}
               <div className="px-6 py-4 flex items-center gap-3 flex-wrap border-b border-gray-100">
                 <div className="flex items-center gap-1 flex-shrink-0 bg-gray-100 rounded-full p-1">
                   {['All Exercises', 'My Exercises'].map((tab) => (
@@ -476,7 +779,6 @@ export default function ExercisesPage() {
                   ))}
                 </div>
 
-                {/* Field */}
                 <div className="relative flex-shrink-0" ref={fieldRef}>
                   <button
                     onClick={() => setFieldOpen(!fieldOpen)}
@@ -517,7 +819,6 @@ export default function ExercisesPage() {
                   )}
                 </div>
 
-                {/* Column */}
                 <div className="relative flex-shrink-0" ref={columnRef}>
                   <button
                     onClick={() => setColumnOpen(!columnOpen)}
@@ -546,7 +847,6 @@ export default function ExercisesPage() {
                   )}
                 </div>
 
-                {/* Value */}
                 <div className="relative flex-shrink-0" ref={valueRef}>
                   <button
                     onClick={() => setValueOpen(!valueOpen)}
@@ -620,7 +920,6 @@ export default function ExercisesPage() {
                 </div>
               </div>
 
-              {/* FILTER BY FIELD chip */}
               {fieldFilter && (
                 <div className="px-6 py-3 border-b border-gray-100 bg-gray-50/40">
                   <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white border border-gray-200 text-[13.5px] text-gray-700 shadow-sm">
@@ -638,7 +937,6 @@ export default function ExercisesPage() {
                 </div>
               )}
 
-              {/* Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -698,7 +996,6 @@ export default function ExercisesPage() {
                 </table>
               </div>
 
-              {/* Pagination */}
               <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
                 <p className="text-sm text-gray-500">
                   Showing <span className="font-semibold text-gray-700">{startItem}–{endItem}</span> of{' '}
@@ -731,11 +1028,10 @@ export default function ExercisesPage() {
           </div>
         )}
 
-        {/* ======================== CREATE / EDIT EXERCISE FULL PAGE ======================== */}
+        {/* ======================== CREATE / EDIT EXERCISE ======================== */}
         {(view === 'create' || view === 'edit') && (
           <div className="flex-1 overflow-y-auto bg-[#f5f6f8]">
 
-            {/* Header — matches the screenshot exactly */}
             <div className="bg-white px-8 pt-7 pb-5 border-b border-gray-100">
               <div className="flex items-center gap-3.5">
                 <button
@@ -757,14 +1053,11 @@ export default function ExercisesPage() {
               </div>
             </div>
 
-            {/* Body */}
             <div className="px-10 py-8">
               <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-7">
 
-                {/* ===== LEFT ===== */}
+                {/* LEFT */}
                 <div className="space-y-6">
-
-                  {/* BASIC INFO */}
                   <div className="border border-gray-200 rounded-2xl p-7 bg-white">
                     <h3 className="text-[16px] font-bold text-gray-900 mb-6">Basic Info</h3>
 
@@ -811,7 +1104,6 @@ export default function ExercisesPage() {
                     </div>
                   </div>
 
-                  {/* CLASSIFICATION */}
                   <div className="border border-gray-200 rounded-2xl p-7 bg-white">
                     <h3 className="text-[16px] font-bold text-gray-900 mb-6">Classification</h3>
 
@@ -898,7 +1190,6 @@ export default function ExercisesPage() {
                     </div>
                   </div>
 
-                  {/* INSTRUCTIONS */}
                   <div className="border border-gray-200 rounded-2xl p-7 bg-white">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="text-[16px] font-bold text-gray-900">Instructions</h3>
@@ -915,15 +1206,24 @@ export default function ExercisesPage() {
                   </div>
                 </div>
 
-                {/* ===== RIGHT ===== */}
+                {/* RIGHT */}
                 <div className="space-y-6">
-
-                  {/* VIDEO CARD */}
                   <div className="border border-gray-200 rounded-2xl p-7 bg-white">
                     <h3 className="text-[16px] font-bold text-gray-900 mb-6">Video</h3>
 
+                    {/* ===== VIDEO PREVIEW — plays inline when a valid URL is entered ===== */}
                     <div className="aspect-video rounded-xl flex flex-col items-center justify-center mb-6 relative overflow-hidden bg-[#0b1426]">
-                      {previewThumb ? (
+                      {embedUrl ? (
+                        <iframe
+                          key={embedUrl}
+                          src={embedUrl}
+                          title="Exercise video"
+                          className="w-full h-full absolute inset-0"
+                          frameBorder={0}
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                          allowFullScreen
+                        />
+                      ) : previewThumb ? (
                         <img src={previewThumb} alt="Video preview" className="w-full h-full object-cover" />
                       ) : videoPlatform === 'YouTube' ? (
                         <>
@@ -931,7 +1231,7 @@ export default function ExercisesPage() {
                             <svg className="w-8 h-8 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                           </div>
                           <p className="text-[13.5px] text-white/70 font-medium">YouTube video</p>
-                          <p className="text-[12px] text-white/40 mt-1">Paste a URL below to see preview</p>
+                          <p className="text-[12px] text-white/40 mt-1">Paste a URL below to play</p>
                         </>
                       ) : videoPlatform === 'Vimeo' ? (
                         <>
@@ -939,7 +1239,7 @@ export default function ExercisesPage() {
                             <svg className="w-8 h-8 text-white ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
                           </div>
                           <p className="text-[13.5px] text-white/70 font-medium">Vimeo video</p>
-                          <p className="text-[12px] text-white/40 mt-1">Paste a URL below to see preview</p>
+                          <p className="text-[12px] text-white/40 mt-1">Paste a URL below to play</p>
                         </>
                       ) : (
                         <>
@@ -995,6 +1295,16 @@ export default function ExercisesPage() {
                           }`}
                         />
                       </div>
+                      {videoUrl && !embedUrl && videoPlatform !== 'None' && (
+                        <p className="text-xs text-red-500 mt-2">
+                          {videoPlatform === 'YouTube'
+                            ? 'Could not detect a valid YouTube video ID in that URL.'
+                            : 'Could not detect a valid Vimeo video ID in that URL.'}
+                        </p>
+                      )}
+                      {embedUrl && (
+                        <p className="text-xs text-emerald-600 mt-2">✓ Video detected — it will play above.</p>
+                      )}
                     </div>
 
                     <div>
@@ -1009,7 +1319,6 @@ export default function ExercisesPage() {
                     </div>
                   </div>
 
-                  {/* SCREENSHOT + SHARE */}
                   <div className="border border-gray-200 rounded-2xl p-7 bg-white">
                     <h3 className="text-[16px] font-bold text-gray-900 mb-6">Screenshot</h3>
 
@@ -1048,7 +1357,6 @@ export default function ExercisesPage() {
                       </button>
                     )}
 
-                    {/* Share with community */}
                     <div className="flex items-center gap-4 px-5 py-4 border border-gray-200 rounded-xl bg-gray-50/40">
                       <svg className="w-5 h-5 text-gray-500 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                         <circle cx="12" cy="12" r="10" />
@@ -1078,7 +1386,6 @@ export default function ExercisesPage() {
                 </div>
               </div>
 
-              {/* Footer buttons */}
               <div className="flex items-center justify-end gap-3 pt-7 mt-7 border-t border-gray-100">
                 <button
                   type="button"
@@ -1100,6 +1407,394 @@ export default function ExercisesPage() {
                     : (view === 'edit' ? 'Save Changes' : 'Create Exercise')}
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== ACCOUNT INFO VIEW ==================== */}
+        {view === 'account-info' && (
+          <div className="flex-1 overflow-y-auto bg-[#f7f8fa]">
+            <div className="px-10 pt-10 pb-6">
+              <h1 className="text-[28px] font-bold text-gray-900 leading-tight mb-1">Account Info</h1>
+              <p className="text-[13.5px] text-gray-500">Manage your personal profile and business details.</p>
+            </div>
+            <div className="px-10 pb-10">
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                <div className="px-8 pt-6 pb-5 border-b border-gray-100">
+                  <div className="inline-flex items-center gap-1 bg-gray-100 rounded-full p-1">
+                    <button onClick={() => { setActiveInfoTab('user'); setInfoErrors({}); }} className={`px-5 py-2 text-[14px] font-medium rounded-full transition ${activeInfoTab === 'user' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>User Info</button>
+                    <button onClick={() => { setActiveInfoTab('business'); setInfoErrors({}); }} className={`px-5 py-2 text-[14px] font-medium rounded-full transition ${activeInfoTab === 'business' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Business Info</button>
+                  </div>
+                </div>
+
+                {activeInfoTab === 'user' && (
+                  <div className="p-8 lg:p-10">
+                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-10">
+                      <div className="space-y-5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          <div>
+                            <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">First name <span className="text-red-500">*</span></label>
+                            <input type="text" value={firstName} onChange={(e) => { setFirstName(e.target.value); if (infoErrors.firstName) setInfoErrors({ ...infoErrors, firstName: '' }); }} className={`w-full h-[48px] px-4 border rounded-lg text-[14px] outline-none transition ${infoErrors.firstName ? 'border-red-400' : 'border-gray-300 focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10'}`} />
+                            {infoErrors.firstName && <p className="text-xs text-red-500 mt-1.5">{infoErrors.firstName}</p>}
+                          </div>
+                          <div>
+                            <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Last name <span className="text-red-500">*</span></label>
+                            <input type="text" value={lastName} onChange={(e) => { setLastName(e.target.value); if (infoErrors.lastName) setInfoErrors({ ...infoErrors, lastName: '' }); }} className={`w-full h-[48px] px-4 border rounded-lg text-[14px] outline-none transition ${infoErrors.lastName ? 'border-red-400' : 'border-gray-300 focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10'}`} />
+                            {infoErrors.lastName && <p className="text-xs text-red-500 mt-1.5">{infoErrors.lastName}</p>}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Email <span className="text-red-500">*</span></label>
+                          <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); if (infoErrors.email) setInfoErrors({ ...infoErrors, email: '' }); }} className={`w-full h-[48px] px-4 border rounded-lg text-[14px] outline-none transition ${infoErrors.email ? 'border-red-400' : 'border-gray-300 focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10'}`} />
+                          {infoErrors.email && <p className="text-xs text-red-500 mt-1.5">{infoErrors.email}</p>}
+                        </div>
+                        <div className="border border-gray-200 rounded-2xl p-6">
+                          <p className="text-[11px] font-bold text-gray-500 tracking-[0.12em] uppercase mb-5">Change password — leave blank to keep current</p>
+                          <div className="space-y-5">
+                            <div>
+                              <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">New password</label>
+                              <div className="relative">
+                                <input type={showNewPassword ? 'text' : 'password'} placeholder="Min 8 chars, upper, lower, number, special" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={`w-full h-[48px] px-4 pr-12 border rounded-lg text-[14px] placeholder-gray-400 outline-none transition ${infoErrors.newPassword ? 'border-red-400' : 'border-gray-300 focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10'}`} />
+                                <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                </button>
+                              </div>
+                              {infoErrors.newPassword && <p className="text-xs text-red-500 mt-1.5">{infoErrors.newPassword}</p>}
+                            </div>
+                            <div>
+                              <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Confirm new password</label>
+                              <div className="relative">
+                                <input type={showConfirmPassword ? 'text' : 'password'} placeholder="Repeat new password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className={`w-full h-[48px] px-4 pr-12 border rounded-lg text-[14px] placeholder-gray-400 outline-none transition ${infoErrors.confirmPassword ? 'border-red-400' : 'border-gray-300 focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10'}`} />
+                                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                </button>
+                              </div>
+                              {infoErrors.confirmPassword && <p className="text-xs text-red-500 mt-1.5">{infoErrors.confirmPassword}</p>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-center justify-start pt-2">
+                        <p className="text-[14px] font-semibold text-gray-800 mb-5">Profile Photo</p>
+
+                        <input
+                          ref={accountPhotoInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                          className="hidden"
+                          onChange={handleAccountPhotoChange}
+                        />
+
+                        <div className="relative w-[220px] h-[220px] mb-6">
+                          <div className="w-full h-full rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+                            {accountPhoto ? (
+                              <img src={accountPhoto} alt={user.name} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-[42px] font-semibold text-gray-600">{getInitials(user.name)}</span>
+                            )}
+                          </div>
+                          {accountPhoto && (
+                            <button
+                              type="button"
+                              onClick={handleRemoveAccountPhoto}
+                              title="Remove photo"
+                              className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white shadow-md border border-gray-200 flex items-center justify-center text-gray-600 hover:text-red-600 transition"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleAccountPhotoClick}
+                          className="px-6 h-[42px] border border-gray-300 rounded-full bg-white hover:bg-gray-50 text-[14px] font-medium text-gray-700 transition"
+                        >
+                          {accountPhoto ? 'Change photo' : 'Upload photo'}
+                        </button>
+
+                        <p className="text-xs text-gray-500 mt-3">JPG, PNG, GIF or WebP. Max 6MB.</p>
+
+                        <div className="w-full border-t border-gray-100 my-8"></div>
+                        <button type="button" onClick={() => setToast({ message: 'Google account connection coming soon', type: 'success' })} className="w-full flex items-center justify-center gap-3 h-[52px] border border-gray-200 rounded-full bg-white hover:bg-gray-50 text-[14.5px] font-medium text-gray-800 transition">
+                          <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 48 48">
+                            <path fill="#FFC107" d="M43.611,20.083H42V20H24c0,2.209,1.791,4,4,4h8c-1.657,2.372-4.354,4-7.5,4c-4.971,0-9-4.029-9-9s4.029-9,9-9 c2.293,0,4.403,0.866,5.982,2.284l5.658-5.658C35.68,3.5,30.151,2,24,2C11.85,2,2,11.85,2,24s9.85,22,22,22c11.046,0,20.62-8.134,21.773-18.916 C45.937,25.023,45.5,22.5,45.5,20C45.5,19.566,45.451,19.145,45.354,18.738L43.611,20.083z" />
+                            <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c2.293,0,4.403,0.866,5.982,2.284l5.658-5.658 C35.68,3.5,30.151,2,24,2C16.318,2,9.656,6.337,6.306,14.691z" />
+                            <path fill="#4CAF50" d="M24,46c5.152,0,9.861-1.971,13.409-5.192l-6.19-5.238C29.145,36.091,26.705,37,24,37 c-3.184,0-5.905-1.616-7.5-4.145l-6.531,5.027C13.18,42.317,18.223,46,24,46z" />
+                            <path fill="#1976D2" d="M43.611,20.083H42V20H24c0,2.209,1.791,4,4,4h8c-0.796,1.14-1.848,2.084-3.076,2.774 c0.001-0.001,6.192,5.238,6.192,5.238C36.971,34.174,46,28,46,20C46,19.653,45.973,19.312,45.921,18.983L43.611,20.083z" />
+                          </svg>
+                          Connect with Google Calendar and Tasks
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-3 pt-8 mt-8 border-t border-gray-100">
+                      <button type="button" onClick={() => setView('list')} className="px-6 h-[44px] text-[14px] font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition bg-white">Cancel</button>
+                      <button type="button" onClick={handleSaveAccountInfo} disabled={savingInfo} className={`px-6 h-[44px] text-[14px] font-semibold text-white rounded-lg transition ${savingInfo ? 'bg-[#7a9bcc] cursor-not-allowed' : 'bg-[#1a4db8] hover:bg-[#15409b]'}`}>{savingInfo ? 'Saving...' : 'Save changes'}</button>
+                    </div>
+                  </div>
+                )}
+
+                {activeInfoTab === 'business' && (
+                  <div className="p-8 lg:p-10">
+                    <div className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                          <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Company name <span className="text-red-500">*</span></label>
+                          <input type="text" placeholder="e.g. TMQA" value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="w-full h-[48px] px-4 border border-gray-300 rounded-lg text-[14px] outline-none focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                        </div>
+                        <div>
+                          <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Phone <span className="text-red-500">*</span></label>
+                          <input type="tel" placeholder="+1 (234) 567-890" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full h-[48px] px-4 border border-gray-300 rounded-lg text-[14px] outline-none focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Address</label>
+                        <input type="text" placeholder="Street address" value={address} onChange={(e) => setAddress(e.target.value)} className="w-full h-[48px] px-4 border border-gray-300 rounded-lg text-[14px] outline-none focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                        <div>
+                          <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">City</label>
+                          <input type="text" placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} className="w-full h-[48px] px-4 border border-gray-300 rounded-lg text-[14px] outline-none focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                        </div>
+                        <div>
+                          <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">State</label>
+                          <input type="text" placeholder="State" value={stateName} onChange={(e) => setStateName(e.target.value)} className="w-full h-[48px] px-4 border border-gray-300 rounded-lg text-[14px] outline-none focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                        </div>
+                        <div>
+                          <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Zip code</label>
+                          <input type="text" placeholder="Zip code" value={zipCode} onChange={(e) => setZipCode(e.target.value)} className="w-full h-[48px] px-4 border border-gray-300 rounded-lg text-[14px] outline-none focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Website</label>
+                        <input type="url" placeholder="https://yoursite.com" value={website} onChange={(e) => setWebsite(e.target.value)} className="w-full h-[48px] px-4 border border-gray-300 rounded-lg text-[14px] outline-none focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-3 pt-8 mt-8 border-t border-gray-100">
+                      <button type="button" onClick={() => setView('list')} className="px-6 h-[44px] text-[14px] font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition bg-white">Cancel</button>
+                      <button type="button" onClick={handleSaveAccountInfo} disabled={savingInfo} className={`px-6 h-[44px] text-[14px] font-semibold text-white rounded-lg transition ${savingInfo ? 'bg-[#7a9bcc] cursor-not-allowed' : 'bg-[#1a4db8] hover:bg-[#15409b]'}`}>{savingInfo ? 'Saving...' : 'Save changes'}</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ==================== ACCOUNT SETTINGS VIEW ==================== */}
+        {view === 'account-settings' && (
+          <div className="flex-1 overflow-y-auto bg-[#f7f8fa]">
+            <div className="px-10 pt-10 pb-6">
+              <h1 className="text-[28px] font-bold text-gray-900 leading-tight mb-1">Account Settings</h1>
+              <p className="text-[13.5px] text-gray-500">Manage branding, metrics, testing, integrations, and system configuration.</p>
+            </div>
+
+            <div className="px-10 pb-6">
+              <div className="inline-flex items-center gap-1 bg-[#eef1f7] rounded-full p-1.5">
+                {(['privileges', 'metrics', 'testing', 'results', 'branding', 'integrations'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setSettingsTab(tab)}
+                    className={`px-5 py-2 text-[14px] font-medium rounded-full transition capitalize ${
+                      settingsTab === tab ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="px-10 pb-10 max-w-[1400px]">
+              {settingsTab === 'privileges' && (
+                <div className="space-y-6">
+                  <div className="bg-white border border-gray-200 rounded-2xl p-8">
+                    <h3 className="text-[16px] font-bold text-gray-900 mb-2">Privileges</h3>
+                    <p className="text-[13px] text-gray-500 mb-6">
+                      Manage role-based permissions for account members.
+                    </p>
+                    <div className="space-y-4">
+                      {[
+                        'Admin — Full access to all features',
+                        'Coach — Can manage assigned profiles and programs',
+                        'Trainer — Can manage workouts and view assigned profiles',
+                        'Member — Can view own data only',
+                        'Viewer — Read-only access',
+                      ].map((role) => (
+                        <div key={role} className="flex items-center justify-between py-3.5 border-b border-gray-100 last:border-b-0">
+                          <span className="text-[14px] text-gray-800">{role}</span>
+                          <button
+                            type="button"
+                            onClick={() => setToast({ message: `${role.split(' — ')[0]} privileges configuration coming soon`, type: 'success' })}
+                            className="text-[13px] font-medium text-[#1a73e8] hover:underline"
+                          >
+                            Configure
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {settingsTab === 'branding' && (
+                <div className="space-y-10">
+                  <div>
+                    <h3 className="text-[15px] font-bold text-gray-900 mb-1">Primary Color</h3>
+                    <p className="text-[13px] text-gray-500 mb-4">Sets the main accent color for the account.</p>
+                    <div className="flex items-center gap-4">
+                      <div className="w-[100px] h-[52px] rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
+                        <div className="w-full h-full rounded-md" style={{ backgroundColor: primaryColor }} />
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border border-gray-200" style={{ backgroundColor: primaryColor }} />
+                        <input
+                          type="text"
+                          value={primaryColor}
+                          onChange={(e) => setPrimaryColor(e.target.value)}
+                          className="h-[52px] pl-11 pr-4 w-[180px] border border-gray-200 rounded-lg text-[14px] font-medium text-gray-800 outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 bg-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-[15px] font-bold text-gray-900 mb-1">Account Logo</h3>
+                    <p className="text-[13px] text-gray-500 mb-4">Upload your account logo. Max 5MB (PNG, JPG, GIF recommended).</p>
+                    <input ref={accountLogoInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml" onChange={handleAccountLogoUpload} className="hidden" />
+                    <div className="relative inline-block">
+                      <button
+                        type="button"
+                        onClick={() => accountLogoInputRef.current?.click()}
+                        className="w-[400px] h-[180px] border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center hover:border-[#1a73e8] hover:bg-blue-50/30 transition relative overflow-hidden"
+                      >
+                        {accountLogo ? (
+                          <img src={accountLogo} alt="Account logo" className="w-full h-full object-contain p-4" />
+                        ) : (
+                          <p className="text-[14px] font-medium text-gray-500">Logo</p>
+                        )}
+                      </button>
+                      {accountLogo && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setAccountLogo(null); }}
+                          className="absolute top-3 right-3 w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-md transition"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {settingsTab === 'integrations' && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="bg-white border border-gray-200 rounded-2xl p-7">
+                    <h3 className="text-[15px] font-bold text-gray-900 mb-5">InBody</h3>
+                    <label className="flex items-center gap-3 cursor-pointer select-none mb-5">
+                      <input type="checkbox" checked={integrations.inbody.enabled} onChange={(e) => setIntegrations({ ...integrations, inbody: { ...integrations.inbody, enabled: e.target.checked } })} className="w-[18px] h-[18px] rounded border-gray-300 text-[#1a73e8] focus:ring-[#1a73e8]" />
+                      <span className="text-[14px] text-gray-800">Integration enabled?</span>
+                    </label>
+                    <div className="space-y-5">
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">API Username</label>
+                        <input type="text" value={integrations.inbody.apiUsername} onChange={(e) => setIntegrations({ ...integrations, inbody: { ...integrations.inbody, apiUsername: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                      </div>
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">API Key</label>
+                        <input type="text" value={integrations.inbody.apiKey} onChange={(e) => setIntegrations({ ...integrations, inbody: { ...integrations.inbody, apiKey: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-gray-200 rounded-2xl p-7">
+                    <h3 className="text-[15px] font-bold text-gray-900 mb-5">Evolt</h3>
+                    <label className="flex items-center gap-3 cursor-pointer select-none mb-5">
+                      <input type="checkbox" checked={integrations.evolt.enabled} onChange={(e) => setIntegrations({ ...integrations, evolt: { ...integrations.evolt, enabled: e.target.checked } })} className="w-[18px] h-[18px] rounded border-gray-300 text-[#1a73e8] focus:ring-[#1a73e8]" />
+                      <span className="text-[14px] text-gray-800">Integration enabled?</span>
+                    </label>
+                    <div className="space-y-5">
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Client ID</label>
+                        <input type="text" value={integrations.evolt.clientId} onChange={(e) => setIntegrations({ ...integrations, evolt: { ...integrations.evolt, clientId: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                      </div>
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Client Secret</label>
+                        <input type="text" value={integrations.evolt.clientSecret} onChange={(e) => setIntegrations({ ...integrations, evolt: { ...integrations.evolt, clientSecret: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white border border-gray-200 rounded-2xl p-7">
+                    <h3 className="text-[15px] font-bold text-gray-900 mb-5">Styku</h3>
+                    <label className="flex items-center gap-3 cursor-pointer select-none mb-5">
+                      <input type="checkbox" checked={integrations.styku.enabled} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, enabled: e.target.checked } })} className="w-[18px] h-[18px] rounded border-gray-300 text-[#1a73e8] focus:ring-[#1a73e8]" />
+                      <span className="text-[14px] text-gray-800">Integration enabled?</span>
+                    </label>
+                    <div className="space-y-5">
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">API Key</label>
+                        <input type="text" value={integrations.styku.apiKey} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, apiKey: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                      </div>
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">API Secret</label>
+                        <input type="text" value={integrations.styku.apiSecret} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, apiSecret: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
+                      </div>
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Body Fat Method</label>
+                        <div className="relative">
+                          <select value={integrations.styku.bodyFatMethod} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, bodyFatMethod: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] bg-white outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 appearance-none pr-10">
+                            <option value="BIA">BIA</option>
+                            <option value="DEXA">DEXA</option>
+                            <option value="Navy">Navy</option>
+                            <option value="Skinfold">Skinfold</option>
+                            <option value="3D Scan">3D Scan</option>
+                          </select>
+                          <svg className="w-4 h-4 text-gray-500 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Circumference Measurement</label>
+                        <div className="relative">
+                          <select value={integrations.styku.circumferenceMeasurement} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, circumferenceMeasurement: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] bg-white outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 appearance-none pr-10">
+                            <option value="Left Side">Left Side</option>
+                            <option value="Right Side">Right Side</option>
+                            <option value="Average">Average</option>
+                          </select>
+                          <svg className="w-4 h-4 text-gray-500 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {settingsTab !== 'privileges' && settingsTab !== 'branding' && settingsTab !== 'integrations' && (
+                <div className="bg-white border border-gray-200 rounded-2xl p-16 text-center">
+                  <p className="text-[15px] text-gray-400 capitalize">{settingsTab} settings coming soon</p>
+                </div>
+              )}
+
+              {(settingsTab === 'branding' || settingsTab === 'integrations') && (
+                <div className="flex items-center justify-end gap-3 pt-8 mt-8 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={handleSaveSettings}
+                    className="px-6 h-[44px] text-[14px] font-semibold text-white bg-[#1a4db8] hover:bg-[#15409b] rounded-lg transition"
+                  >
+                    Save settings
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
