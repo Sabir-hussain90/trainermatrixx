@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { api } from '@/lib/api';
 
 export default function Dashboard() {
   const router = useRouter();
-  const [user, setUser] = useState<{ name: string; email: string; role: string } | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [logoError, setLogoError] = useState(false);
 
@@ -19,21 +20,17 @@ export default function Dashboard() {
     analytics: true,
   });
 
-  // ACCOUNT MENU
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
-  // STATUS DROPDOWN
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('Open');
   const statusDropdownRef = useRef<HTMLDivElement>(null);
 
-  // TYPE DROPDOWN
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState<string[]>(['General', 'Metrics', 'Forms']);
   const typeDropdownRef = useRef<HTMLDivElement>(null);
 
-  // PAGINATION
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems] = useState(0);
@@ -48,7 +45,6 @@ export default function Dashboard() {
   const [tasks] = useState<any[]>([]);
   const [events] = useState<any[]>([]);
 
-  // ====== ACCOUNT INFO FORM ======
   const [activeTab, setActiveTab] = useState<'user' | 'business'>('user');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -69,14 +65,12 @@ export default function Dashboard() {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [saving, setSaving] = useState(false);
 
-  // ====== ACCOUNT SETTINGS ======
   type SettingsTab = 'privileges' | 'metrics' | 'testing' | 'results' | 'branding' | 'integrations';
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('privileges');
   const [primaryColor, setPrimaryColor] = useState('#F59E0B');
   const [accountLogo, setAccountLogo] = useState<string | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
-  // Integrations
   const [integrations, setIntegrations] = useState({
     inbody: { enabled: false, apiUsername: '', apiKey: '' },
     evolt: { enabled: false, clientId: '', clientSecret: '' },
@@ -91,17 +85,31 @@ export default function Dashboard() {
 
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' } | null>(null);
 
-  // ====== LOAD ======
   useEffect(() => {
-    const stored = localStorage.getItem('user');
-    if (stored) {
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const stored = localStorage.getItem('user') || sessionStorage.getItem('user');
+
+    if (!token || !stored) {
+      router.push('/');
+      return;
+    }
+
+    try {
       const parsed = JSON.parse(stored);
       setUser(parsed);
-      const parts = (parsed.name || '').split(/\s+/).filter(Boolean);
-      setFirstName(parts[0] || '');
-      setLastName(parts.slice(1).join(' ') || '');
+
+      const first = (parsed.firstName || '').trim();
+      const last = (parsed.lastName || '').trim();
+      if (first || last) {
+        setFirstName(first);
+        setLastName(last);
+      } else if (parsed.name) {
+        const parts = String(parsed.name).split(/\s+/).filter(Boolean);
+        setFirstName(parts[0] || '');
+        setLastName(parts.slice(1).join(' ') || '');
+      }
       setEmail(parsed.email || '');
-    } else {
+    } catch {
       router.push('/');
       return;
     }
@@ -130,10 +138,7 @@ export default function Dashboard() {
           setIntegrations((prev) => ({
             ...prev,
             ...s.integrations,
-            styku: {
-              ...prev.styku,
-              ...(s.integrations.styku || {}),
-            },
+            styku: { ...prev.styku, ...(s.integrations.styku || {}) },
           }));
         }
       } catch (err) { console.error(err); }
@@ -159,16 +164,33 @@ export default function Dashboard() {
     }
   }, [toast]);
 
-  const getInitials = (name: string) => {
+  const getInitials = (name?: string) => {
+    if (!name || typeof name !== 'string') return 'U';
     const parts = name.split(/[.\s+_-]+/).filter(Boolean);
     if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
     return name.slice(0, 2).toUpperCase();
   };
 
-  const getDisplayName = (name: string) => {
+  const getDisplayName = (name?: string) => {
+    if (!name || typeof name !== 'string') return 'User';
     const parts = name.split(/[.\s+_-]+/).filter(Boolean);
     const nameOnly = parts.filter((p) => isNaN(Number(p)));
-    return nameOnly.map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ');
+    return nameOnly.map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' ') || 'User';
+  };
+
+  const getUserName = (u: any): string => {
+    if (!u) return 'User';
+    if (u.name && typeof u.name === 'string' && u.name.trim()) return u.name.trim();
+    const first = (u.firstName || '').trim();
+    const last = (u.lastName || '').trim();
+    const combined = `${first} ${last}`.trim();
+    return combined || u.email || 'User';
+  };
+
+  const getUserRole = (u: any): string => {
+    if (!u) return '';
+    const r = u.role || '';
+    return r.charAt(0).toUpperCase() + r.slice(1).toLowerCase();
   };
 
   const getGreeting = () => {
@@ -185,6 +207,9 @@ export default function Dashboard() {
 
   const handleLogout = () => {
     localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    sessionStorage.removeItem('user');
+    sessionStorage.removeItem('token');
     router.push('/');
   };
 
@@ -205,7 +230,7 @@ export default function Dashboard() {
   const handlePrevious = () => { if (currentPage > 1) setCurrentPage(currentPage - 1); };
   const handleNext = () => { if (currentPage < totalPages) setCurrentPage(currentPage + 1); };
 
-  // ====== SAVE ACCOUNT INFO ======
+  // ====== SAVE ACCOUNT INFO — NOW CALLS BACKEND ======
   const handleSaveAccountInfo = async () => {
     const errs: { [key: string]: string } = {};
 
@@ -225,17 +250,33 @@ export default function Dashboard() {
 
       setErrors({});
       setSaving(true);
-      await new Promise((r) => setTimeout(r, 400));
 
-      const updatedUser = { ...(user as any), name: `${firstName} ${lastName}`.trim(), email };
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-      setUser(updatedUser);
-      if (newPassword) localStorage.setItem('user_password', newPassword);
+      try {
+        const payload: any = {
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          email: email.trim().toLowerCase(),
+        };
+        if (newPassword) payload.newPassword = newPassword;
 
-      setNewPassword('');
-      setConfirmPassword('');
-      setSaving(false);
-      setToast({ message: 'User info saved successfully', type: 'success' });
+        const updated = await api.patch<any>('/auth/me', payload);
+
+        const mergedUser = { ...(user || {}), ...updated };
+        localStorage.setItem('user', JSON.stringify(mergedUser));
+        setUser(mergedUser);
+
+        setNewPassword('');
+        setConfirmPassword('');
+        setSaving(false);
+        setToast({
+          message: newPassword ? 'Profile and password updated successfully' : 'Profile updated successfully',
+          type: 'success',
+        });
+      } catch (err: any) {
+        setSaving(false);
+        const msg = err?.message || 'Failed to save changes';
+        setToast({ message: msg, type: 'error' });
+      }
     } else {
       if (!companyName.trim()) errs.companyName = 'Company name is required';
       if (!phone.trim()) errs.phone = 'Phone is required';
@@ -265,7 +306,6 @@ export default function Dashboard() {
     }
   };
 
-  // ====== LOGO UPLOAD ======
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -278,7 +318,6 @@ export default function Dashboard() {
     reader.readAsDataURL(file);
   };
 
-  // ====== SAVE SETTINGS ======
   const handleSaveSettings = () => {
     localStorage.setItem('account_settings', JSON.stringify({
       primaryColor,
@@ -296,11 +335,12 @@ export default function Dashboard() {
     );
   }
 
-  const displayName = getDisplayName(user.name);
+  const displayName = getDisplayName(getUserName(user));
+  const userName = getUserName(user);
+  const userRole = getUserRole(user);
 
   return (
     <div className="min-h-screen bg-[#f5f6f8] flex">
-
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[300]">
           <div className="bg-white rounded-xl shadow-2xl border border-gray-100 py-3.5 px-5 flex items-center gap-3 min-w-[320px]">
@@ -323,7 +363,7 @@ export default function Dashboard() {
             {!logoError ? (
               <img src="/logo.jpeg" alt="Logo" className="w-full h-full object-cover" onError={() => setLogoError(true)} />
             ) : (
-              <span className="text-white text-sm font-bold">{getInitials(user.name)}</span>
+              <span className="text-white text-sm font-bold">{getInitials(userName)}</span>
             )}
           </div>
           <button className="text-gray-400 hover:text-gray-600">
@@ -403,7 +443,6 @@ export default function Dashboard() {
 
       {/* MAIN */}
       <main className="flex-1 flex flex-col overflow-hidden h-screen">
-
         <header className="bg-white border-b border-gray-100 px-6 py-3 flex items-center justify-end gap-4 flex-shrink-0">
           <button className="text-gray-500 hover:text-gray-700 relative">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
@@ -412,18 +451,18 @@ export default function Dashboard() {
 
           <div className="relative" ref={accountMenuRef}>
             <button onClick={() => setAccountMenuOpen(!accountMenuOpen)} className="flex items-center gap-3 pl-4 border-l border-gray-200 hover:bg-gray-50 rounded-lg px-2 py-1 transition">
-              <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-semibold">{getInitials(user.name)}</div>
+              <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-semibold">{getInitials(userName)}</div>
               <div className="text-left">
-                <p className="text-sm font-semibold text-gray-800 leading-none">{user.name}</p>
-                <p className="text-[11px] text-gray-500 leading-none mt-1">{user.role}</p>
+                <p className="text-sm font-semibold text-gray-800 leading-none">{userName}</p>
+                <p className="text-[11px] text-gray-500 leading-none mt-1">{userRole}</p>
               </div>
             </button>
 
             {accountMenuOpen && (
               <div className="absolute top-full right-0 mt-3 w-[320px] bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
                 <div className="px-5 py-4 border-b border-gray-100">
-                  <p className="text-[15px] font-semibold text-gray-900">{user.name}</p>
-                  <p className="text-[12.5px] text-gray-500 mt-0.5">{user.role}</p>
+                  <p className="text-[15px] font-semibold text-gray-900">{userName}</p>
+                  <p className="text-[12.5px] text-gray-500 mt-0.5">{userRole}</p>
                 </div>
                 <div className="py-2">
                   <button onClick={() => { setAccountMenuOpen(false); setView('dashboard'); }} className="w-full flex items-center gap-3.5 px-5 py-3 text-[14px] text-gray-800 hover:bg-gray-50 transition text-left">
@@ -552,18 +591,7 @@ export default function Dashboard() {
                   <tbody>
                     {tasks.length === 0 ? (
                       <tr><td colSpan={6} className="px-6 py-16 text-center text-gray-400 text-sm">No tasks yet.</td></tr>
-                    ) : (
-                      tasks.map((t: any) => (
-                        <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50">
-                          <td className="px-6 py-4 font-medium text-gray-800">{t.task}</td>
-                          <td className="px-4 py-4 text-gray-600">{t.status}</td>
-                          <td className="px-4 py-4 text-gray-600">{t.type}</td>
-                          <td className="px-4 py-4 text-gray-600">{t.profile}</td>
-                          <td className="px-4 py-4 text-gray-600">{t.due}</td>
-                          <td className="px-6 py-4 text-right text-gray-400">⋯</td>
-                        </tr>
-                      ))
-                    )}
+                    ) : null}
                   </tbody>
                 </table>
 
@@ -655,8 +683,12 @@ export default function Dashboard() {
                               <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">New password</label>
                               <div className="relative">
                                 <input type={showNewPassword ? 'text' : 'password'} placeholder="Min 8 chars, upper, lower, number, special" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={`w-full h-[48px] px-4 pr-12 border rounded-lg text-[14px] placeholder-gray-400 outline-none transition ${errors.newPassword ? 'border-red-400' : 'border-gray-300 focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10'}`} />
-                                <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" aria-label={showNewPassword ? 'Hide password' : 'Show password'}>
+                                  {showNewPassword ? (
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                                  ) : (
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                  )}
                                 </button>
                               </div>
                               {errors.newPassword && <p className="text-xs text-red-500 mt-1.5">{errors.newPassword}</p>}
@@ -665,8 +697,12 @@ export default function Dashboard() {
                               <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Confirm new password</label>
                               <div className="relative">
                                 <input type={showConfirmPassword ? 'text' : 'password'} placeholder="Repeat new password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className={`w-full h-[48px] px-4 pr-12 border rounded-lg text-[14px] placeholder-gray-400 outline-none transition ${errors.confirmPassword ? 'border-red-400' : 'border-gray-300 focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10'}`} />
-                                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}>
+                                  {showConfirmPassword ? (
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg>
+                                  ) : (
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                  )}
                                 </button>
                               </div>
                               {errors.confirmPassword && <p className="text-xs text-red-500 mt-1.5">{errors.confirmPassword}</p>}
@@ -677,7 +713,7 @@ export default function Dashboard() {
                       <div className="flex flex-col items-center justify-start pt-2">
                         <p className="text-[14px] font-semibold text-gray-800 mb-5">Profile Photo</p>
                         <div className="w-[220px] h-[220px] rounded-full bg-gray-200 flex items-center justify-center mb-6">
-                          <span className="text-[42px] font-semibold text-gray-600">{getInitials(user.name)}</span>
+                          <span className="text-[42px] font-semibold text-gray-600">{getInitials(userName)}</span>
                         </div>
                         <button type="button" onClick={() => setToast({ message: 'Photo upload coming soon', type: 'success' })} className="px-6 h-[42px] border border-gray-300 rounded-full bg-white hover:bg-gray-50 text-[14px] font-medium text-gray-700 transition">Change photo</button>
                         <div className="w-full border-t border-gray-100 my-8"></div>
@@ -749,41 +785,27 @@ export default function Dashboard() {
         {/* ACCOUNT SETTINGS VIEW */}
         {view === 'account-settings' && (
           <div className="flex-1 overflow-y-auto bg-[#f7f8fa]">
-
-            {/* Header */}
             <div className="px-10 pt-10 pb-6">
               <h1 className="text-[28px] font-bold text-gray-900 leading-tight mb-1">Account Settings</h1>
               <p className="text-[13.5px] text-gray-500">Manage branding, metrics, testing, integrations, and system configuration.</p>
             </div>
 
-            {/* Tabs pill */}
             <div className="px-10 pb-6">
               <div className="inline-flex items-center gap-1 bg-[#eef1f7] rounded-full p-1.5">
                 {(['privileges', 'metrics', 'testing', 'results', 'branding', 'integrations'] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setSettingsTab(tab)}
-                    className={`px-5 py-2 text-[14px] font-medium rounded-full transition capitalize ${
-                      settingsTab === tab ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
+                  <button key={tab} onClick={() => setSettingsTab(tab)} className={`px-5 py-2 text-[14px] font-medium rounded-full transition capitalize ${settingsTab === tab ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                     {tab}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Content */}
             <div className="px-10 pb-10 max-w-[1400px]">
-
-              {/* ==== PRIVILEGES TAB ==== */}
               {settingsTab === 'privileges' && (
                 <div className="space-y-6">
                   <div className="bg-white border border-gray-200 rounded-2xl p-8">
                     <h3 className="text-[16px] font-bold text-gray-900 mb-2">Privileges</h3>
-                    <p className="text-[13px] text-gray-500 mb-6">
-                      Manage role-based permissions for account members.
-                    </p>
+                    <p className="text-[13px] text-gray-500 mb-6">Manage role-based permissions for account members.</p>
                     <div className="space-y-4">
                       {[
                         'Admin — Full access to all features',
@@ -794,13 +816,7 @@ export default function Dashboard() {
                       ].map((role) => (
                         <div key={role} className="flex items-center justify-between py-3.5 border-b border-gray-100 last:border-b-0">
                           <span className="text-[14px] text-gray-800">{role}</span>
-                          <button
-                            type="button"
-                            onClick={() => setToast({ message: `${role.split(' — ')[0]} privileges configuration coming soon`, type: 'success' })}
-                            className="text-[13px] font-medium text-[#1a73e8] hover:underline"
-                          >
-                            Configure
-                          </button>
+                          <button type="button" onClick={() => setToast({ message: `${role.split(' — ')[0]} privileges configuration coming soon`, type: 'success' })} className="text-[13px] font-medium text-[#1a73e8] hover:underline">Configure</button>
                         </div>
                       ))}
                     </div>
@@ -808,7 +824,6 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* ==== BRANDING TAB ==== */}
               {settingsTab === 'branding' && (
                 <div className="space-y-10">
                   <div>
@@ -820,12 +835,7 @@ export default function Dashboard() {
                       </div>
                       <div className="relative">
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border border-gray-200" style={{ backgroundColor: primaryColor }} />
-                        <input
-                          type="text"
-                          value={primaryColor}
-                          onChange={(e) => setPrimaryColor(e.target.value)}
-                          className="h-[52px] pl-11 pr-4 w-[180px] border border-gray-200 rounded-lg text-[14px] font-medium text-gray-800 outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 bg-white"
-                        />
+                        <input type="text" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} className="h-[52px] pl-11 pr-4 w-[180px] border border-gray-200 rounded-lg text-[14px] font-medium text-gray-800 outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 bg-white" />
                       </div>
                     </div>
                   </div>
@@ -835,11 +845,7 @@ export default function Dashboard() {
                     <p className="text-[13px] text-gray-500 mb-4">Upload your account logo. Max 5MB (PNG, JPG, GIF recommended).</p>
                     <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/svg+xml" onChange={handleLogoUpload} className="hidden" />
                     <div className="relative inline-block">
-                      <button
-                        type="button"
-                        onClick={() => logoInputRef.current?.click()}
-                        className="w-[400px] h-[180px] border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center hover:border-[#1a73e8] hover:bg-blue-50/30 transition relative overflow-hidden"
-                      >
+                      <button type="button" onClick={() => logoInputRef.current?.click()} className="w-[400px] h-[180px] border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center hover:border-[#1a73e8] hover:bg-blue-50/30 transition relative overflow-hidden">
                         {accountLogo ? (
                           <img src={accountLogo} alt="Account logo" className="w-full h-full object-contain p-4" />
                         ) : (
@@ -847,14 +853,8 @@ export default function Dashboard() {
                         )}
                       </button>
                       {accountLogo && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setAccountLogo(null); }}
-                          className="absolute top-3 right-3 w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-md transition"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                          </svg>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); setAccountLogo(null); }} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-md transition">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" /></svg>
                         </button>
                       )}
                     </div>
@@ -862,175 +862,97 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* ==== INTEGRATIONS TAB ==== */}
               {settingsTab === 'integrations' && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-                  {/* InBody */}
                   <div className="bg-white border border-gray-200 rounded-2xl p-7">
                     <h3 className="text-[15px] font-bold text-gray-900 mb-5">InBody</h3>
-
                     <label className="flex items-center gap-3 cursor-pointer select-none mb-5">
-                      <input
-                        type="checkbox"
-                        checked={integrations.inbody.enabled}
-                        onChange={(e) => setIntegrations({ ...integrations, inbody: { ...integrations.inbody, enabled: e.target.checked } })}
-                        className="w-[18px] h-[18px] rounded border-gray-300 text-[#1a73e8] focus:ring-[#1a73e8]"
-                      />
+                      <input type="checkbox" checked={integrations.inbody.enabled} onChange={(e) => setIntegrations({ ...integrations, inbody: { ...integrations.inbody, enabled: e.target.checked } })} className="w-[18px] h-[18px] rounded border-gray-300 text-[#1a73e8] focus:ring-[#1a73e8]" />
                       <span className="text-[14px] text-gray-800">Integration enabled?</span>
                     </label>
-
                     <div className="space-y-5">
                       <div>
                         <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">API Username</label>
-                        <input
-                          type="text"
-                          value={integrations.inbody.apiUsername}
-                          onChange={(e) => setIntegrations({ ...integrations, inbody: { ...integrations.inbody, apiUsername: e.target.value } })}
-                          className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10"
-                        />
+                        <input type="text" value={integrations.inbody.apiUsername} onChange={(e) => setIntegrations({ ...integrations, inbody: { ...integrations.inbody, apiUsername: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
                       </div>
                       <div>
                         <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">API Key</label>
-                        <input
-                          type="text"
-                          value={integrations.inbody.apiKey}
-                          onChange={(e) => setIntegrations({ ...integrations, inbody: { ...integrations.inbody, apiKey: e.target.value } })}
-                          className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10"
-                        />
+                        <input type="text" value={integrations.inbody.apiKey} onChange={(e) => setIntegrations({ ...integrations, inbody: { ...integrations.inbody, apiKey: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
                       </div>
                     </div>
                   </div>
 
-                  {/* Evolt */}
                   <div className="bg-white border border-gray-200 rounded-2xl p-7">
                     <h3 className="text-[15px] font-bold text-gray-900 mb-5">Evolt</h3>
-
                     <label className="flex items-center gap-3 cursor-pointer select-none mb-5">
-                      <input
-                        type="checkbox"
-                        checked={integrations.evolt.enabled}
-                        onChange={(e) => setIntegrations({ ...integrations, evolt: { ...integrations.evolt, enabled: e.target.checked } })}
-                        className="w-[18px] h-[18px] rounded border-gray-300 text-[#1a73e8] focus:ring-[#1a73e8]"
-                      />
+                      <input type="checkbox" checked={integrations.evolt.enabled} onChange={(e) => setIntegrations({ ...integrations, evolt: { ...integrations.evolt, enabled: e.target.checked } })} className="w-[18px] h-[18px] rounded border-gray-300 text-[#1a73e8] focus:ring-[#1a73e8]" />
                       <span className="text-[14px] text-gray-800">Integration enabled?</span>
                     </label>
-
                     <div className="space-y-5">
                       <div>
                         <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Client ID</label>
-                        <input
-                          type="text"
-                          value={integrations.evolt.clientId}
-                          onChange={(e) => setIntegrations({ ...integrations, evolt: { ...integrations.evolt, clientId: e.target.value } })}
-                          className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10"
-                        />
+                        <input type="text" value={integrations.evolt.clientId} onChange={(e) => setIntegrations({ ...integrations, evolt: { ...integrations.evolt, clientId: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
                       </div>
                       <div>
                         <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Client Secret</label>
-                        <input
-                          type="text"
-                          value={integrations.evolt.clientSecret}
-                          onChange={(e) => setIntegrations({ ...integrations, evolt: { ...integrations.evolt, clientSecret: e.target.value } })}
-                          className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10"
-                        />
+                        <input type="text" value={integrations.evolt.clientSecret} onChange={(e) => setIntegrations({ ...integrations, evolt: { ...integrations.evolt, clientSecret: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
                       </div>
                     </div>
                   </div>
 
-                  {/* Styku — with full fields matching the screenshot */}
                   <div className="bg-white border border-gray-200 rounded-2xl p-7">
                     <h3 className="text-[15px] font-bold text-gray-900 mb-5">Styku</h3>
-
                     <label className="flex items-center gap-3 cursor-pointer select-none mb-5">
-                      <input
-                        type="checkbox"
-                        checked={integrations.styku.enabled}
-                        onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, enabled: e.target.checked } })}
-                        className="w-[18px] h-[18px] rounded border-gray-300 text-[#1a73e8] focus:ring-[#1a73e8]"
-                      />
+                      <input type="checkbox" checked={integrations.styku.enabled} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, enabled: e.target.checked } })} className="w-[18px] h-[18px] rounded border-gray-300 text-[#1a73e8] focus:ring-[#1a73e8]" />
                       <span className="text-[14px] text-gray-800">Integration enabled?</span>
                     </label>
-
                     <div className="space-y-5">
                       <div>
                         <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">API Key</label>
-                        <input
-                          type="text"
-                          value={integrations.styku.apiKey}
-                          onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, apiKey: e.target.value } })}
-                          className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10"
-                        />
+                        <input type="text" value={integrations.styku.apiKey} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, apiKey: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
                       </div>
-
                       <div>
                         <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">API Secret</label>
-                        <input
-                          type="text"
-                          value={integrations.styku.apiSecret}
-                          onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, apiSecret: e.target.value } })}
-                          className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10"
-                        />
+                        <input type="text" value={integrations.styku.apiSecret} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, apiSecret: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10" />
                       </div>
-
                       <div>
                         <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Body Fat Method</label>
                         <div className="relative">
-                          <select
-                            value={integrations.styku.bodyFatMethod}
-                            onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, bodyFatMethod: e.target.value } })}
-                            className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] bg-white outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 appearance-none pr-10"
-                          >
+                          <select value={integrations.styku.bodyFatMethod} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, bodyFatMethod: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] bg-white outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 appearance-none pr-10">
                             <option value="BIA">BIA</option>
                             <option value="DEXA">DEXA</option>
                             <option value="Navy">Navy</option>
                             <option value="Skinfold">Skinfold</option>
                             <option value="3D Scan">3D Scan</option>
                           </select>
-                          <svg className="w-4 h-4 text-gray-500 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-                          </svg>
+                          <svg className="w-4 h-4 text-gray-500 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
                         </div>
                       </div>
-
                       <div>
                         <label className="block text-[13.5px] font-semibold text-gray-800 mb-2">Circumference Measurement</label>
                         <div className="relative">
-                          <select
-                            value={integrations.styku.circumferenceMeasurement}
-                            onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, circumferenceMeasurement: e.target.value } })}
-                            className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] bg-white outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 appearance-none pr-10"
-                          >
+                          <select value={integrations.styku.circumferenceMeasurement} onChange={(e) => setIntegrations({ ...integrations, styku: { ...integrations.styku, circumferenceMeasurement: e.target.value } })} className="w-full h-[48px] px-4 border border-gray-200 rounded-lg text-[14px] bg-white outline-none transition focus:border-[#1a73e8] focus:ring-4 focus:ring-[#1a73e8]/10 appearance-none pr-10">
                             <option value="Left Side">Left Side</option>
                             <option value="Right Side">Right Side</option>
                             <option value="Average">Average</option>
                           </select>
-                          <svg className="w-4 h-4 text-gray-500 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-                          </svg>
+                          <svg className="w-4 h-4 text-gray-500 absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
                         </div>
                       </div>
                     </div>
                   </div>
-
                 </div>
               )}
 
-              {/* ==== OTHER TABS ===== */}
               {settingsTab !== 'privileges' && settingsTab !== 'branding' && settingsTab !== 'integrations' && (
                 <div className="bg-white border border-gray-200 rounded-2xl p-16 text-center">
                   <p className="text-[15px] text-gray-400 capitalize">{settingsTab} settings coming soon</p>
                 </div>
               )}
 
-              {/* Save button */}
               {(settingsTab === 'branding' || settingsTab === 'integrations') && (
                 <div className="flex items-center justify-end gap-3 pt-8 mt-8 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={handleSaveSettings}
-                    className="px-6 h-[44px] text-[14px] font-semibold text-white bg-[#1a4db8] hover:bg-[#15409b] rounded-lg transition"
-                  >
+                  <button type="button" onClick={handleSaveSettings} className="px-6 h-[44px] text-[14px] font-semibold text-white bg-[#1a4db8] hover:bg-[#15409b] rounded-lg transition">
                     Save settings
                   </button>
                 </div>
