@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "node -e \"require('fs').mkdirSync('netlify/functions',{recursive:true})\" && nest build && esbuild src/lambda.ts --bundle --platform=node --target=node20 --outfile=netlify/functions/api.js --external:aws-sdk --external:@prisma/client --external:@prisma/adapter-neon --external:pg --external:@nestjs/microservices --external:@nestjs/websockets --external:@nestjs/microservices/* --external:@nestjs/websockets/*",
     "deploy": "nest deploy",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
